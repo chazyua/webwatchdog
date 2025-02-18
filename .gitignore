@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Log files
+*.log
+.DS_Store
+
+# Rest
+/node_modules
+/.vscode

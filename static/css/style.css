@@ -1,0 +1,199 @@
+body {
+    font-family: 'Montserrat', sans-serif;
+    background: white;
+    min-height: 100vh;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+}
+
+.navbar {
+    background: linear-gradient(135deg, #2196f3 0%, #4caf50 100%);
+    padding: 1rem 0;
+    margin-bottom: 1rem;
+}
+
+.navbar-brand {
+    color: white;
+    font-weight: 700;
+    font-size: 1.5rem;
+}
+
+.navbar-brand img {
+    opacity: 0.75;
+    transition: opacity 0.3s ease;
+}
+
+.navbar-brand:hover {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.website-card {
+    transition: all 0.3s ease;
+    border: 1px solid;
+    border-image-slice: 1;
+    border-image-source: linear-gradient(135deg, #2196f3 0%, #4caf50 100%);
+    background: white;
+    margin-bottom: 1rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.website-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.card-title {
+    font-weight: 600;
+    color: #1a1a1a;
+    max-width: 450px; /* Increased from 300px */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    border-radius: 0;
+    display: inline-flex;
+    align-items: center;
+    min-width: 32px;
+    justify-content: center;
+}
+
+.status-success {
+    background-color: transparent;
+    color: #28a745;
+}
+
+.status-success.has-changes {
+    color: #17a2b8;
+}
+
+.status-error {
+    background-color: #dc3545;
+    color: white;
+}
+
+.status-pending {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.status-changed {
+    background-color: #17a2b8;
+    color: white;
+}
+
+.change-detected {
+    color: #17a2b8;
+    font-weight: 500;
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+    display: flex;
+    align-items: center;
+}
+
+.btn {
+    padding: 8px 16px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border-radius: 0;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #2196f3 0%, #4caf50 100%);
+    border: none;
+    color: white;
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    border: none;
+}
+
+.btn-danger {
+    background: #dc3545;
+    border: none;
+}
+
+.card-body {
+    padding: 0.75rem;
+}
+
+.timestamps {
+    line-height: 1.2;
+}
+
+.timestamps .text-muted {
+    font-size: 0.75rem;
+}
+
+.card-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.card-actions .btn {
+    padding: 4px 8px;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.rotating {
+    animation: rotate 1s linear infinite;
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+    .card-title {
+        font-size: 1rem;
+        max-width: 280px; /* Increased from 200px */
+    }
+
+    .website-info {
+        width: 100%;
+    }
+
+    .card-actions {
+        margin-left: auto;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .card-actions .btn {
+        padding: 4px 8px;
+    }
+
+    .timestamps {
+        margin-top: 0.25rem;
+        font-size: 0.7rem;
+    }
+}
+
+.footer {
+    margin-top: auto;
+    padding: 0.1rem 0;
+    background: linear-gradient(135deg, #2196f3 0%, #4caf50 100%);
+}
+
+.footer a {
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.footer a:hover {
+    color: rgba(255, 255, 255, 0.9);
+}
