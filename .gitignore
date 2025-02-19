@@ -8,3 +8,6 @@
 # Rest
 /node_modules
 /.vscode
+
+# Cache
+__pycache__
