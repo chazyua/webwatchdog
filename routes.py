@@ -5,8 +5,25 @@ from app import app, db
 from models import Website, Check
 from monitor import WebsiteMonitor
 from sqlalchemy import UUID
+from functools import wraps
+
+def with_db_retry(f):
+    """Decorator to retry database operations"""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        for attempt in range(3):
+            try:
+                return f(*args, **kwargs)
+            except Exception as e:
+                if attempt == 2:  # Last attempt
+                    raise
+                logger.warning(f"Database operation failed, retrying: {str(e)}")
+                database_connection.close()  # Force reconnection
+                time.sleep(1)
+    return wrapper
 
 @app.route('/')
+@with_db_retry
 def dashboard():
     websites = Website.query.order_by(Website.url).all()
     return render_template('dashboard.html', websites=websites, current_year=datetime.now().year)

@@ -1,12 +1,13 @@
 import os
 import logging
-from flask import Flask
+from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 from database import DatabaseConnection, get_db_session
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 
 # Load environment variables
 load_dotenv()
@@ -51,40 +52,55 @@ if not app.config["TELEGRAM_BOT_TOKEN"] or not app.config["TELEGRAM_CHAT_ID"]:
 db.init_app(app)
 
 def init_scheduler():
-    """Initialize the background scheduler for website checks"""
-    try:
-        scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler()
+    
+    def check_db_health():
+        """Periodic database health check"""
+        try:
+            with app.app_context():
+                session = get_db_session()
+                with session.begin():
+                    session.execute(text('SELECT 1'))  # Now text() is available
+                logger.info("Database health check passed")
+        except Exception as e:
+            logger.error(f"Database health check failed: {str(e)}")
+            database_connection.close()  # Force reconnection on next request
 
-        def check_all_websites():
-            from monitor import WebsiteMonitor
-            monitor = WebsiteMonitor(
-                telegram_bot_token=app.config["TELEGRAM_BOT_TOKEN"],
-                telegram_chat_id=app.config["TELEGRAM_CHAT_ID"]
-            )
-            try:
-                from models import Website
-                with app.app_context():
-                    websites = Website.query.all()
-                    for website in websites:
-                        try:
-                            monitor.check_website(website)
-                        except Exception as e:
-                            logger.error(f"Error checking website {website.url}: {str(e)}")
-            except Exception as e:
-                logger.error(f"Error fetching websites: {str(e)}")
+    # Check database health every 30 seconds
+    scheduler.add_job(
+        check_db_health,
+        'interval',
+        seconds=30,
+        id='db_health_check'
+    )
 
-        # Schedule website checks
-        scheduler.add_job(
-            check_all_websites,
-            CronTrigger(hour='8,11,15,19', timezone='America/Los_Angeles')
+    def check_all_websites():
+        from monitor import WebsiteMonitor
+        monitor = WebsiteMonitor(
+            telegram_bot_token=app.config["TELEGRAM_BOT_TOKEN"],
+            telegram_chat_id=app.config["TELEGRAM_CHAT_ID"]
         )
+        try:
+            from models import Website
+            with app.app_context():
+                websites = Website.query.all()
+                for website in websites:
+                    try:
+                        monitor.check_website(website)
+                    except Exception as e:
+                        logger.error(f"Error checking website {website.url}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error fetching websites: {str(e)}")
 
-        scheduler.start()
-        logger.info("Scheduler started successfully with website checks")
-        return scheduler
-    except Exception as e:
-        logger.error(f"Failed to initialize scheduler: {str(e)}")
-        return None
+    # Schedule website checks
+    scheduler.add_job(
+        check_all_websites,
+        CronTrigger(hour='8,11,15,19', timezone='America/Los_Angeles')
+    )
+
+    scheduler.start()
+    logger.info("Scheduler started successfully with website checks and database health checks")
+    return scheduler
 
 # Create all database tables
 with app.app_context():
