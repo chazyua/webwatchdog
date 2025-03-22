@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block body_class %}auth-page{% endblock %}
+
+{% block content %}
+<div class="row mt-5 position-relative">
+    <!-- Background logo with opacity -->
+    <div class="background-logo">
+        <img src="{{ url_for('static', filename='img/wwd-icon.svg') }}" alt="" class="opacity-15">
+    </div>
+    
+    <div class="col-md-7 d-flex align-items-center">
+        <div class="welcome-message">
+            <div class="mb-3">
+                <img src="{{ url_for('static', filename='img/wwd-logo.svg') }}" alt="WebWatchDog" class="landing-logo" width="280">
+            </div>
+            <p class="lead">Monitor website changes with automated notifications.</p>
+            <ul class="list-unstyled mt-4">
+                <li class="mb-2"><i data-feather="check" class="text-success me-2"></i> Real-time content change detection</li>
+                <li class="mb-2"><i data-feather="check" class="text-success me-2"></i> Email and Telegram notifications</li>
+                <li class="mb-2"><i data-feather="check" class="text-success me-2"></i> Custom scheduling options</li>
+                <li><i data-feather="check" class="text-success me-2"></i> Simple, user-friendly interface</li>
+            </ul>
+        </div>
+    </div>
+    <div class="col-md-4 ms-auto">
+        <div class="card auth-card">
+            <div class="card-body auth-form">
+                <div class="text-center mb-4">
+                    <h3 class="fw-bold">Login</h3>
+                </div>
+                <!-- Toast notifications will be displayed instead of flash messages -->
+                
+                <form method="POST" action="{{ url_for('auth.login') }}">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-4">
+                        <div class="input-group form-field-standard">
+                            <span class="input-group-text bg-transparent border-end-0">
+                                <i data-feather="mail"></i>
+                            </span>
+                            {{ form.email(class="form-control border-start-0", placeholder="Enter your email") }}
+                        </div>
+                        {% for error in form.email.errors %}
+                            <span class="text-danger small">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="mb-3">
+                        <div class="input-group form-field-standard">
+                            <span class="input-group-text bg-transparent border-end-0">
+                                <i data-feather="lock"></i>
+                            </span>
+                            {{ form.password(class="form-control border-start-0 border-end-0", placeholder="Enter your password") }}
+                            <button class="input-group-text bg-transparent border-start-0" type="button" id="togglePassword">
+                                <i data-feather="eye"></i>
+                            </button>
+                        </div>
+                        {% for error in form.password.errors %}
+                            <span class="text-danger small">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="mb-4 form-check">
+                        {{ form.remember_me(class="form-check-input") }}
+                        {{ form.remember_me.label(class="form-check-label") }}
+                        <a href="{{ url_for('auth.forgot_password') }}" class="float-end text-decoration-none">Forgot Password?</a>
+                    </div>
+                    <div class="d-flex gap-2 mb-4">
+                        {{ form.submit(class="btn btn-primary flex-grow-1") }}
+                        <a href="{{ url_for('auth.google_login') }}" class="btn btn-outline-primary" id="googleLoginBtn">
+                            <svg class="google-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.25-.164-1.84H9v3.48h4.84c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+                        </a>
+                    </div>
+                </form>
+                
+                <div class="text-center">
+                    <p>Don't have an account? <a href="{{ url_for('auth.register') }}" class="fw-bold">Register Now</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Google login error message modal -->
+<div class="modal fade" id="googleLoginErrorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Google Login Not Configured</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Google login is not configured on this server. Please use email login instead.</p>
+                <p class="text-muted small">To enable Google login, the server administrator needs to configure Google OAuth credentials.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Got it</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Password visibility toggle
+    const togglePassword = document.getElementById('togglePassword');
+    const passwordInput = document.querySelector('input[name="password"]');
+    
+    togglePassword.addEventListener('click', function() {
+        const currentType = passwordInput.getAttribute('type');
+        passwordInput.setAttribute('type', currentType === 'password' ? 'text' : 'password');
+        
+        // Change the icon
+        const eyeIcon = this.querySelector('svg');
+        if (currentType === 'password') {
+            feather.replace(eyeIcon, { name: 'eye-off' });
+        } else {
+            feather.replace(eyeIcon, { name: 'eye' });
+        }
+    });
+    
+    // Google login warning
+    const googleLoginBtn = document.getElementById('googleLoginBtn');
+    googleLoginBtn.addEventListener('click', function(e) {
+        // Check if Google OAuth is configured
+        {% if not config.get('GOOGLE_CLIENT_ID') or not config.get('GOOGLE_CLIENT_SECRET') %}
+            e.preventDefault();
+            const modal = new bootstrap.Modal(document.getElementById('googleLoginErrorModal'));
+            modal.show();
+        {% endif %}
+    });
+});
+</script>
+
+<style>
+.auth-card {
+    border: 1px solid #ccc;
+    border-radius: 0;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    background-color: rgb(239, 251, 238);
+}
+
+.welcome-message {
+    max-width: 600px;
+    padding: 1rem;
+}
+
+.welcome-message h1 {
+    color: #1a2e35;
+    margin-bottom: 1rem;
+}
+
+.welcome-message .lead {
+    color: #3c4e56;
+    font-size: 1.2rem;
+    margin-bottom: 1.5rem;
+}
+
+.welcome-message li {
+    font-size: 1.1rem;
+    color: #3c4e56;
+    display: flex;
+    align-items: center;
+}
+
+.separator {
+    width: 100%;
+}
+
+.separator-line {
+    height: 1px;
+    background-color: #e0e0e0;
+}
+
+.background-logo {
+    position: absolute;
+    top: -250px;
+    left: -200px;
+    width: 100%;
+    height: 170%;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.background-logo img {
+    width: 800px;
+    opacity: 0.15;
+    transform: rotate(-5deg);
+}
+
+.opacity-15 {
+    opacity: 0.15;
+}
+
+.landing-logo {
+    width: 100%;
+    margin-bottom: 1rem;
+}
+</style>
+{% endblock %}

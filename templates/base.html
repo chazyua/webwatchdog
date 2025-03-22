@@ -3,38 +3,689 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>WebWatchDog</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Multiple favicon formats for better browser compatibility -->
-    <link rel="shortcut icon" href="{{ url_for('static', filename='img/wwd-logo.ico') }}" type="image/x-icon">
-    <link rel="icon" href="{{ url_for('static', filename='img/wwd-logo.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20250317-4">
+    <!-- Favicon -->
+    <link rel="icon" href="{{ url_for('static', filename='img/wwd-icon.svg') }}" type="image/svg+xml">
 
+    <style>
+        /* Sidebar styles */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            width: 420px; /* Increased width from 380px to 420px */
+            z-index: 100;
+            padding: 0; /* Removed 20px padding */
+            background-color: #f8f9fa;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease-in-out;
+            transform: translateX(100%);
+            overflow-y: auto;
+        }
+        
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 360px; /* Increased mobile width from 320px to 360px */
+            }
+        }
+        
+        .sidebar.show {
+            transform: translateX(0);
+        }
+        
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 0; /* Remove margin */
+        }
+        
+        .sidebar-body {
+            margin-bottom: 20px;
+        }
+        
+        .close-sidebar {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        /* Overlay when sidebar is open */
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 99;
+            display: none;
+            cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'%3E%3C/line%3E%3Cline x1='6' y1='6' x2='18' y2='18'%3E%3C/line%3E%3C/svg%3E"), auto;
+        }
+        
+        .sidebar-overlay.show {
+            display: block;
+        }
+    </style>
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg">
+<body class="{% block body_class %}{% endblock %}">
+    {% if not request.path.startswith('/auth/') %}
+    <nav class="navbar">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="/">
-                <img src="{{ url_for('static', filename='img/wwd-logo.png') }}" alt="WWD Logo" class="me-2" style="height: 40px; width: auto;">
-                <span>WebWatchDog</span>
+                <img src="{{ url_for('static', filename='img/wwd-logo.svg') }}" alt="WebWatchDog Logo" class="me-2" style="height: 50px; width: auto;">
             </a>
+            
+            <!-- Simplified navbar - no toggle or menu -->
+            {% if current_user.is_authenticated and request.endpoint == 'dashboard' %}
+            <!-- Configure button moved to dashboard.html next to "Add Website" -->
+            {% endif %}
         </div>
     </nav>
+    {% endif %}
 
-    <div class="container">
-        {% block content %}{% endblock %}
+    <div class="content-wrapper">
+        <div class="container mt-4">
+            <!-- Toast notifications will be displayed by JavaScript -->
+            <div id="toast-container"></div>
+            
+            <!-- Direct toast message data -->
+            {% if toast_message %}
+            <div id="toast-message-data" 
+                 data-message="{{ toast_message }}"
+                 data-type="{{ toast_type or 'info' }}">
+            </div>
+            {% endif %}
+            
+            {% block content %}{% endblock %}
+        </div>
     </div>
 
-    <footer class="footer">
-        <div class="container text-end">
-            <span class="text-white">{{ current_year }}. <a href="https://chaze.net">AY</a></span>
+    <!-- Configuration Sidebar -->
+    {% if current_user.is_authenticated %}
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <div class="sidebar d-flex flex-column" id="configSidebar">
+        <div class="sidebar-header py-2 px-3">
+            <h5 class="mb-0">Configuration</h5>
+            <button class="close-sidebar" id="closeSidebar">&times;</button>
+        </div>
+        <div class="sidebar-body flex-grow-1 d-flex flex-column px-0 py-0">
+            <form id="configForm" class="d-flex flex-column h-100">
+                
+                <div class="w-100">
+                    <div class="border-bottom py-2 px-3 d-flex align-items-center bg-light">
+                        <i data-feather="clock" class="me-2" style="width: 18px; height: 18px;"></i> 
+                        <span style="font-weight: 600; letter-spacing: 0.5px; font-size: 0.95rem;">Schedule Website Checks</span>
+                    </div>
+                    <div class="p-2">
+                        
+                        <!-- Hidden form fields for the actual cron expressions -->
+                        <input type="hidden" id="schedule1" value="{{ current_user.schedule_1 or '0 8 * * *' }}">
+                        <input type="hidden" id="schedule2" value="{{ current_user.schedule_2 or '' }}">
+                        <input type="hidden" id="schedule3" value="{{ current_user.schedule_3 or '' }}">
+                        <input type="hidden" id="schedule4" value="{{ current_user.schedule_4 or '' }}">
+                        
+                        <!-- User-friendly schedule interface -->
+                        <div class="schedule-row my-1" data-index="1"> <!-- Changed mb-2 to my-1 for more compact spacing -->
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="form-check form-switch schedule-toggle">
+                                    <input class="form-check-input schedule-enabled" type="checkbox" id="schedule_enabled_1" 
+                                          data-schedule-id="1" {% if current_user.schedule_1 %}checked{% endif %}>
+                                    <label class="form-check-label" for="schedule_enabled_1">Schedule 1</label>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-1 mb-1">
+                                <!-- Time controls in compact layout -->
+                                <div class="col-12 mb-1">
+                                    <div class="d-flex gap-2">
+                                        <!-- Hour dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-hour schedule-fields-1" id="schedule_hour_1" {% if not current_user.schedule_1 %}disabled{% endif %}>
+                                            <option value="">HH</option>
+                                            {% for h in range(1, 13) %}
+                                                <option value="{{ h }}">{{ h }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- Minutes dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-minute schedule-fields-1" id="schedule_minute_1" {% if not current_user.schedule_1 %}disabled{% endif %}>
+                                            <option value="">MM</option>
+                                            {% for m in range(0, 60, 10) %}
+                                                <option value="{{ m }}">{{ '%02d' % m }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- AM/PM dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-ampm schedule-fields-1" id="schedule_ampm_1" {% if not current_user.schedule_1 %}disabled{% endif %}>
+                                            <option value="am">AM</option>
+                                            <option value="pm">PM</option>
+                                        </select>
+                                        
+                                        <!-- Hidden field to store the combined time value -->
+                                        <input type="hidden" id="schedule_time_1" class="schedule-time-value">
+                                    </div>
+                                </div>
+                                
+                                <!-- Days dropdown -->
+                                <div class="col-12">
+                                    <select class="form-select form-select-sm schedule-select schedule-days schedule-fields-1" id="schedule_days_1" {% if not current_user.schedule_1 %}disabled{% endif %}>
+                                        <option value="* * *">Every day</option>
+                                        <option value="* * 0,6">Weekends</option>
+                                        <option value="* * 1-5">Weekdays</option>
+                                        <option value="* * 1">Mondays</option>
+                                        <option value="* * 2">Tuesdays</option>
+                                        <option value="* * 3">Wednesdays</option>
+                                        <option value="* * 4">Thursdays</option>
+                                        <option value="* * 5">Fridays</option>
+                                        <option value="* * 6">Saturdays</option>
+                                        <option value="* * 0">Sundays</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-1">
+                                <span class="schedule-preview text-muted small"></span>
+                            </div>
+                        </div>
+                        
+                        <div class="schedule-row my-1" data-index="2">
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="form-check form-switch schedule-toggle">
+                                    <input class="form-check-input schedule-enabled" type="checkbox" id="schedule_enabled_2" 
+                                          data-schedule-id="2" {% if current_user.schedule_2 %}checked{% endif %}>
+                                    <label class="form-check-label" for="schedule_enabled_2">Schedule 2</label>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-1 mb-1">
+                                <!-- Time controls in compact layout -->
+                                <div class="col-12 mb-1">
+                                    <div class="d-flex gap-2">
+                                        <!-- Hour dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-hour schedule-fields-2" id="schedule_hour_2" {% if not current_user.schedule_2 %}disabled{% endif %}>
+                                            <option value="">HH</option>
+                                            {% for h in range(1, 13) %}
+                                                <option value="{{ h }}">{{ h }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- Minutes dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-minute schedule-fields-2" id="schedule_minute_2" {% if not current_user.schedule_2 %}disabled{% endif %}>
+                                            <option value="">MM</option>
+                                            {% for m in range(0, 60, 10) %}
+                                                <option value="{{ m }}">{{ '%02d' % m }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- AM/PM dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-ampm schedule-fields-2" id="schedule_ampm_2" {% if not current_user.schedule_2 %}disabled{% endif %}>
+                                            <option value="am">AM</option>
+                                            <option value="pm">PM</option>
+                                        </select>
+                                        
+                                        <!-- Hidden field to store the combined time value -->
+                                        <input type="hidden" id="schedule_time_2" class="schedule-time-value">
+                                    </div>
+                                </div>
+                                
+                                <!-- Days dropdown -->
+                                <div class="col-12">
+                                    <select class="form-select form-select-sm schedule-select schedule-days schedule-fields-2" id="schedule_days_2" {% if not current_user.schedule_2 %}disabled{% endif %}>
+                                        <option value="* * *">Every day</option>
+                                        <option value="* * 0,6">Weekends</option>
+                                        <option value="* * 1-5">Weekdays</option>
+                                        <option value="* * 1">Mondays</option>
+                                        <option value="* * 2">Tuesdays</option>
+                                        <option value="* * 3">Wednesdays</option>
+                                        <option value="* * 4">Thursdays</option>
+                                        <option value="* * 5">Fridays</option>
+                                        <option value="* * 6">Saturdays</option>
+                                        <option value="* * 0">Sundays</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-1">
+                                <span class="schedule-preview text-muted small"></span>
+                            </div>
+                        </div>
+                        
+                        <div class="schedule-row my-1" data-index="3">
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="form-check form-switch schedule-toggle">
+                                    <input class="form-check-input schedule-enabled" type="checkbox" id="schedule_enabled_3" 
+                                          data-schedule-id="3" {% if current_user.schedule_3 %}checked{% endif %}>
+                                    <label class="form-check-label" for="schedule_enabled_3">Schedule 3</label>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-1 mb-1">
+                                <!-- Time controls in compact layout -->
+                                <div class="col-12 mb-1">
+                                    <div class="d-flex gap-2">
+                                        <!-- Hour dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-hour schedule-fields-3" id="schedule_hour_3" {% if not current_user.schedule_3 %}disabled{% endif %}>
+                                            <option value="">HH</option>
+                                            {% for h in range(1, 13) %}
+                                                <option value="{{ h }}">{{ h }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- Minutes dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-minute schedule-fields-3" id="schedule_minute_3" {% if not current_user.schedule_3 %}disabled{% endif %}>
+                                            <option value="">MM</option>
+                                            {% for m in range(0, 60, 10) %}
+                                                <option value="{{ m }}">{{ '%02d' % m }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- AM/PM dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-ampm schedule-fields-3" id="schedule_ampm_3" {% if not current_user.schedule_3 %}disabled{% endif %}>
+                                            <option value="am">AM</option>
+                                            <option value="pm">PM</option>
+                                        </select>
+                                        
+                                        <!-- Hidden field to store the combined time value -->
+                                        <input type="hidden" id="schedule_time_3" class="schedule-time-value">
+                                    </div>
+                                </div>
+                                
+                                <!-- Days dropdown -->
+                                <div class="col-12">
+                                    <select class="form-select form-select-sm schedule-select schedule-days schedule-fields-3" id="schedule_days_3" {% if not current_user.schedule_3 %}disabled{% endif %}>
+                                        <option value="* * *">Every day</option>
+                                        <option value="* * 0,6">Weekends</option>
+                                        <option value="* * 1-5">Weekdays</option>
+                                        <option value="* * 1">Mondays</option>
+                                        <option value="* * 2">Tuesdays</option>
+                                        <option value="* * 3">Wednesdays</option>
+                                        <option value="* * 4">Thursdays</option>
+                                        <option value="* * 5">Fridays</option>
+                                        <option value="* * 6">Saturdays</option>
+                                        <option value="* * 0">Sundays</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-1">
+                                <span class="schedule-preview text-muted small"></span>
+                            </div>
+                        </div>
+                        
+                        <div class="schedule-row my-1" data-index="4">
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="form-check form-switch schedule-toggle">
+                                    <input class="form-check-input schedule-enabled" type="checkbox" id="schedule_enabled_4" 
+                                          data-schedule-id="4" {% if current_user.schedule_4 %}checked{% endif %}>
+                                    <label class="form-check-label" for="schedule_enabled_4">Schedule 4</label>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-1 mb-1">
+                                <!-- Time controls in compact layout -->
+                                <div class="col-12 mb-1">
+                                    <div class="d-flex gap-2">
+                                        <!-- Hour dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-hour schedule-fields-4" id="schedule_hour_4" {% if not current_user.schedule_4 %}disabled{% endif %}>
+                                            <option value="">HH</option>
+                                            {% for h in range(1, 13) %}
+                                                <option value="{{ h }}">{{ h }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- Minutes dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-minute schedule-fields-4" id="schedule_minute_4" {% if not current_user.schedule_4 %}disabled{% endif %}>
+                                            <option value="">MM</option>
+                                            {% for m in range(0, 60, 10) %}
+                                                <option value="{{ m }}">{{ '%02d' % m }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        
+                                        <!-- AM/PM dropdown -->
+                                        <select class="form-select form-select-sm schedule-select schedule-ampm schedule-fields-4" id="schedule_ampm_4" {% if not current_user.schedule_4 %}disabled{% endif %}>
+                                            <option value="am">AM</option>
+                                            <option value="pm">PM</option>
+                                        </select>
+                                        
+                                        <!-- Hidden field to store the combined time value -->
+                                        <input type="hidden" id="schedule_time_4" class="schedule-time-value">
+                                    </div>
+                                </div>
+                                
+                                <!-- Days dropdown -->
+                                <div class="col-12">
+                                    <select class="form-select form-select-sm schedule-select schedule-days schedule-fields-4" id="schedule_days_4" {% if not current_user.schedule_4 %}disabled{% endif %}>
+                                        <option value="* * *">Every day</option>
+                                        <option value="* * 0,6">Weekends</option>
+                                        <option value="* * 1-5">Weekdays</option>
+                                        <option value="* * 1">Mondays</option>
+                                        <option value="* * 2">Tuesdays</option>
+                                        <option value="* * 3">Wednesdays</option>
+                                        <option value="* * 4">Thursdays</option>
+                                        <option value="* * 5">Fridays</option>
+                                        <option value="* * 6">Saturdays</option>
+                                        <option value="* * 0">Sundays</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-1">
+                                <span class="schedule-preview text-muted small"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="w-100 sticky-bottom py-3 px-3 mt-auto">
+                    <button type="submit" class="btn btn-primary w-100" style="border-radius: 0; border: none; padding: 12px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; font-size: 0.95rem; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);">
+                        Save Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <footer class="footer mt-3">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                {% if current_user.is_authenticated %}
+                <!-- Logout icon only - text removed -->
+                <a href="{{ url_for('auth.logout') }}" class="text-white text-decoration-none me-3 ms-3" title="Logout">
+                    <i data-feather="log-out" style="width: 18px; height: 18px;"></i>
+                </a>
+                
+                <!-- Settings link moved to footer -->
+                <a href="{{ url_for('settings.user_settings') }}" class="text-white text-decoration-none me-3" title="User Settings">
+                    <i data-feather="user" style="width: 18px; height: 18px;"></i>
+                </a>
+                
+                <!-- Scheduler Debug button - for admin users only -->
+                {% if current_user.username == 'admin' %}
+                <a href="#" class="text-white text-decoration-none" title="Scheduler Debug" data-bs-toggle="modal" data-bs-target="#schedulerDebugModal">
+                    <i data-feather="activity" style="width: 18px; height: 18px;"></i>
+                </a>
+                {% endif %}
+                {% endif %}
+            </div>
+            <div>
+                <span class="text-white me-3">{{ current_year }}. <a href="https://chaze.net">AY</a></span>
+            </div>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    
+    <!-- Initialize Feather icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Feather icons
+            feather.replace();
+            
+            {% if current_user.is_authenticated %}
+            // Sidebar functionality
+            const sidebar = document.getElementById('configSidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const openBtn = document.getElementById('openSidebar');
+            const closeBtn = document.getElementById('closeSidebar');
+            const configForm = document.getElementById('configForm');
+            
+            function openSidebar() {
+                sidebar.classList.add('show');
+                overlay.classList.add('show');
+                document.body.style.overflow = 'hidden';
+            }
+            
+            function closeSidebar() {
+                sidebar.classList.remove('show');
+                overlay.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+            
+            if (openBtn) openBtn.addEventListener('click', openSidebar);
+            if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
+            if (overlay) overlay.addEventListener('click', closeSidebar);
+            
+            // Schedule interface handlers
+            function updateCronExpression(scheduleId) {
+                // Get the new individual time components - first check if we're using the new interface
+                const hourSelect = document.getElementById(`schedule_hour_${scheduleId}`);
+                const minuteSelect = document.getElementById(`schedule_minute_${scheduleId}`);
+                const ampmSelect = document.getElementById(`schedule_ampm_${scheduleId}`);
+                const daysSelect = document.getElementById(`schedule_days_${scheduleId}`);
+                const hiddenField = document.getElementById(`schedule${scheduleId}`);
+                
+                if (!daysSelect || !hiddenField) return;
+                
+                const enabledCheckbox = document.getElementById(`schedule_enabled_${scheduleId}`);
+                if (!enabledCheckbox || !enabledCheckbox.checked) {
+                    hiddenField.value = '';
+                    return;
+                }
+                
+                // Check if we're using the new or old time interface
+                if (hourSelect && minuteSelect && ampmSelect) {
+                    // Using new interface with separate time controls
+                    
+                    // Get values from selects
+                    const hourValue = hourSelect.value;
+                    const minuteValue = minuteSelect.value;
+                    const ampmValue = ampmSelect.value;
+                    const daysValue = daysSelect.value;
+                    
+                    // Check if all required values are present
+                    if (!hourValue || !minuteValue || !ampmValue) {
+                        hiddenField.value = '';
+                        return;
+                    }
+                    
+                    // Convert 12-hour to 24-hour format
+                    let hour24 = parseInt(hourValue);
+                    if (ampmValue === 'pm' && hour24 < 12) {
+                        hour24 += 12;
+                    } else if (ampmValue === 'am' && hour24 === 12) {
+                        hour24 = 0;
+                    }
+                    
+                    // Parse the days value
+                    let dayMonth = '* *'; // Default for day of month and month
+                    let dayOfWeek = '*';  // Default for day of week
+                    
+                    if (daysValue !== '* * *') {
+                        // The daysValue format is "* * X" where X is day of week
+                        const dayParts = daysValue.split(' ');
+                        if (dayParts.length === 3) {
+                            dayOfWeek = dayParts[2];
+                        }
+                    }
+                    
+                    // Final cron expression: minute hour day month day_of_week
+                    const cronExpression = `${minuteValue} ${hour24} ${dayMonth} ${dayOfWeek}`;
+                    hiddenField.value = cronExpression;
+                    
+                    console.log(`Updated schedule ${scheduleId} to cron: ${cronExpression}`);
+                } else {
+                    // Using old interface with combined time select
+                    const timeSelect = document.getElementById(`schedule_time_${scheduleId}`);
+                    if (!timeSelect) return;
+                    
+                    const timeValue = timeSelect.value;
+                    const daysValue = daysSelect.value;
+                    
+                    if (!timeValue) {
+                        hiddenField.value = '';
+                        return;
+                    }
+                    
+                    // Construct cron expression
+                    const timeParts = timeValue.split(' ');
+                    if (timeParts.length !== 2) return;
+                    
+                    const minute = timeParts[0];
+                    const hour = timeParts[1];
+                    
+                    // Parse the days value
+                    let dayMonth = '* *'; // Default for day of month and month
+                    let dayOfWeek = '*';  // Default for day of week
+                    
+                    if (daysValue !== '* * *') {
+                        // The daysValue format is "* * X" where X is day of week
+                        const dayParts = daysValue.split(' ');
+                        if (dayParts.length === 3) {
+                            dayOfWeek = dayParts[2];
+                        }
+                    }
+                    
+                    // Final cron expression: minute hour day month day_of_week
+                    const cronExpression = `${minute} ${hour} ${dayMonth} ${dayOfWeek}`;
+                    hiddenField.value = cronExpression;
+                    
+                    console.log(`Updated schedule ${scheduleId} to cron: ${cronExpression}`);
+                }
+                
+                // Update preview
+                updateSchedulePreview(scheduleId);
+            }
+            
+            function updateSchedulePreview(scheduleId) {
+                // Preview functionality disabled as per requirement
+                // No longer displaying schedule times in the preview text
+                return;
+            }
+            
+            // Add event listeners to schedule form elements
+            document.querySelectorAll('.schedule-enabled').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const scheduleId = this.dataset.scheduleId;
+                    updateCronExpression(scheduleId);
+                });
+            });
+            
+            document.querySelectorAll('.schedule-select').forEach(select => {
+                select.addEventListener('change', function() {
+                    const row = this.closest('.schedule-row');
+                    const scheduleId = row.dataset.index;
+                    updateCronExpression(scheduleId);
+                });
+            });
+            
+            // Initialize schedule preview displays
+            for (let i = 1; i <= 4; i++) {
+                updateSchedulePreview(i);
+                
+                // Set initial selected values for time and days selects based on hidden fields
+                const hiddenValue = document.getElementById(`schedule${i}`).value;
+                if (hiddenValue) {
+                    const parts = hiddenValue.split(' ');
+                    if (parts.length === 5) {
+                        const minute = parseInt(parts[0]);
+                        const hour = parseInt(parts[1]);
+                        const dayOfWeek = parts[4];
+                        
+                        // First check if we have the new separated time controls
+                        const hourSelect = document.getElementById(`schedule_hour_${i}`);
+                        const minuteSelect = document.getElementById(`schedule_minute_${i}`);
+                        const ampmSelect = document.getElementById(`schedule_ampm_${i}`);
+                        
+                        if (hourSelect && minuteSelect && ampmSelect) {
+                            // Using new interface - set hour in 12-hour format
+                            const isPm = hour >= 12;
+                            const hour12 = isPm ? (hour === 12 ? 12 : hour - 12) : (hour === 0 ? 12 : hour);
+                            
+                            // Set hour select
+                            const hourOption = Array.from(hourSelect.options).find(opt => parseInt(opt.value) === hour12);
+                            if (hourOption) {
+                                hourOption.selected = true;
+                            }
+                            
+                            // Set minute select - find the closest available minute (we use 10-minute intervals)
+                            const closestMinute = Math.round(minute / 10) * 10;
+                            const minuteStr = closestMinute.toString();
+                            const minuteOption = Array.from(minuteSelect.options).find(opt => opt.value === minuteStr);
+                            if (minuteOption) {
+                                minuteOption.selected = true;
+                            }
+                            
+                            // Set AM/PM select
+                            const ampmOption = Array.from(ampmSelect.options).find(opt => opt.value === (isPm ? 'pm' : 'am'));
+                            if (ampmOption) {
+                                ampmOption.selected = true;
+                            }
+                        } else {
+                            // Using old interface with combined time select
+                            const timeSelect = document.getElementById(`schedule_time_${i}`);
+                            if (timeSelect) {
+                                const timeValue = `${minute} ${hour}`;
+                                const timeOption = Array.from(timeSelect.options).find(opt => opt.value === timeValue);
+                                if (timeOption) {
+                                    timeOption.selected = true;
+                                }
+                            }
+                        }
+                        
+                        // Set days select (same for both interfaces)
+                        const daysSelect = document.getElementById(`schedule_days_${i}`);
+                        if (daysSelect) {
+                            let daysValue = `* * ${dayOfWeek}`;
+                            const daysOption = Array.from(daysSelect.options).find(opt => opt.value === daysValue);
+                            if (daysOption) {
+                                daysOption.selected = true;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Telegram help button removed
+            
+            // Save settings via AJAX
+            configForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const settings = {
+                    schedules: [
+                        document.getElementById('schedule1').value,
+                        document.getElementById('schedule2').value,
+                        document.getElementById('schedule3').value,
+                        document.getElementById('schedule4').value
+                    ]
+                };
+                
+                fetch('/settings/api/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify(settings)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (typeof window.showToast === 'function') {
+                        window.showToast(data.message || 'Settings saved successfully!', 'success');
+                    }
+                    closeSidebar();
+                })
+                .catch(error => {
+                    console.error('Error saving settings:', error);
+                    if (typeof window.showToast === 'function') {
+                        window.showToast('Error saving settings. Please try again.', 'error');
+                    }
+                });
+            });
+            {% endif %}
+            
+            // We use showToast function from dashboard.js now
+        });
+    </script>
 </body>
 </html>

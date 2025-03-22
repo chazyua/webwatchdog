@@ -8,6 +8,7 @@
 # Rest
 /node_modules
 /.vscode
+/venv
 
 # Cache
 __pycache__

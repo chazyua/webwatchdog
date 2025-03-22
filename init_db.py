@@ -4,7 +4,8 @@ from models import Website
 def init_websites():
     initial_websites = [
         "https://chaze.net",
-        "https://google.com"
+        "https://primepremiere.amazon",
+        "https://alexandrasmirnova.com"
     ]
 
     try:

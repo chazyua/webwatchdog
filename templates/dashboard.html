@@ -1,18 +1,24 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="d-flex flex-column min-vh-100">
 <div class="row mb-3">
     <div class="col-12 text-end">
-        <button class="btn btn-secondary me-2" id="checkAllWebsites">
-            <i data-feather="refresh-cw"></i> Check All
-        </button>
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addWebsiteModal">
+        <!-- Reordered buttons - Add Website first, then Check All, Configure as rightmost -->
+        <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#addWebsiteModal">
             <i data-feather="plus"></i> Add Website
+        </button>
+        <button class="btn btn-secondary me-2" id="checkAllWebsites" title="Check All Websites">
+            <i data-feather="refresh-cw"></i>
+        </button>
+        <!-- Removed Run Scheduled Checks button as requested -->
+        <button id="openSidebar" class="btn btn-outline-primary" title="Configure Schedules">
+            <i data-feather="sliders"></i>
         </button>
     </div>
 </div>
 
-<div class="row">
+<div class="row website-cards-container">
     {% for website in websites %}
     <div class="col-12 mb-2">
         <div class="card website-card">
@@ -98,20 +104,67 @@
 <div class="modal fade" id="addWebsiteModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Add Website</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
             <div class="modal-body">
                 <form id="addWebsiteForm">
                     <div class="mb-3">
-                        <label for="websiteUrl" class="form-label">Website URL</label>
-                        <input type="url" class="form-control" id="websiteUrl" value="https://" required>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light">
+                                <i data-feather="globe"></i>
+                            </span>
+                            <input type="text" class="form-control" id="websiteUrl" placeholder="URL" required>
+                            
+                            <button type="submit" class="ms-1 btn btn-primary">Add Website</button>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Add Website</button>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Scheduler Debug Modal (only shown for admin users) -->
+{% if current_user.username == 'admin' %}
+<div class="modal fade" id="schedulerDebugModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Scheduler Debug Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Scheduler Information</div>
+                            <div class="card-body">
+                                <div id="scheduler-info"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Your Schedules</div>
+                            <div class="card-body">
+                                <div id="user-schedules"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">All Jobs</div>
+                    <div class="card-body">
+                        <div id="scheduler-jobs"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="refreshSchedulerInfo">Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+<!-- No custom footer - using the existing site footer -->
+</div> <!-- End of min-vh-100 container -->
 {% endblock %}

@@ -1,3 +1,7 @@
+# WebWatchDog dependencies for Python 3.12.3
+# Updated on March 17, 2025
+
+# Core dependencies
 apscheduler==3.11.0
 email-validator==2.2.0
 flask==3.1.0
@@ -7,13 +11,43 @@ python-dotenv==1.0.1
 requests==2.32.3
 sqlalchemy==2.0.36
 trafilatura==2.0.0
-httpx
-sshtunnel
-dnspython
-paramiko
-twilio
-slack_sdk
+pytz==2024.1
+
+# Authentication and user management
+flask-login==0.6.3
+flask-wtf==1.2.2
+authlib==1.5.1
+werkzeug
+
+# Notification dependencies
 python-telegram-bot==20.7
-telegram
-beautifulsoup4
+
+# Email sending
+# Note: No external packages needed as we use the built-in smtplib
+
+# HTML processing
+beautifulsoup4==4.12.3
 lxml
+
+# HTTP client (used by Telegram bot and OAuth)
+httpx
+
+# DNS resolution for email validation
+dnspython==2.6.1
+
+# Web server for production
+gunicorn==22.0.0
+
+# Database migration
+alembic==1.13.2
+
+# Security
+itsdangerous==2.2.0
+pyjwt==2.8.0
+
+# For SSL verification
+certifi==2024.2.2
+
+# Additional utilities
+cachetools==5.3.3  # Used by APScheduler
+croniter==2.0.2    # For cron expressions

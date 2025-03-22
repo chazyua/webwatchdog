@@ -1,38 +1,41 @@
+"""
+PostgreSQL Database Connection Module
+Direct connection only - clean implementation
+Updated for Python 3.12.3 compatibility
+"""
 import os
 import logging
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
-import paramiko
-import socket
-import time
-from sshtunnel import SSHTunnelForwarder
-import threading
 
-# Force reload of environment variables
-load_dotenv(override=True)
+# Load environment variables
+load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Define Base for models
+Base = declarative_base()
+
+# Database connection class
 class DatabaseConnection:
     def __init__(self):
-        self.tunnel = None
         self.engine = None
         self.Session = None
-        self._lock = threading.Lock()
-
-        # Database Configuration
-        self.db_host = '127.0.0.1'
-        self.db_port = 5432
-        self.db_name = os.environ['DB_NAME'].strip()
-        self.db_username = os.environ['DB_USERNAME'].strip()
-        self.db_password = os.environ['DB_PASSWORD'].strip()
-
+        
+        # Get database configuration from environment variables
+        self.db_host = os.environ.get('DB_HOST', os.environ.get('PGHOST', 'localhost'))
+        self.db_port = os.environ.get('DB_PORT', os.environ.get('PGPORT', '5432'))
+        self.db_name = os.environ.get('DB_NAME', os.environ.get('PGDATABASE', 'webwatchdog'))
+        self.db_username = os.environ.get('DB_USERNAME', os.environ.get('PGUSER', 'postgres'))
+        self.db_password = os.environ.get('DB_PASSWORD', os.environ.get('PGPASSWORD', ''))
+        
+        # Also look for a full DATABASE_URL
+        self.database_url = os.environ.get('DATABASE_URL', None)
+        
+        # Log the database configuration (without password)
         logger.info(f"Database configuration: host={self.db_host}, port={self.db_port}, "
                    f"database={self.db_name}, username={self.db_username}")
 
@@ -40,8 +43,7 @@ class DatabaseConnection:
         """Test database connection by executing a simple query"""
         try:
             # First ensure we have a connection
-            if not self.engine:
-                self.connect()
+            self.connect()
 
             # Test the connection with a query that shows database details
             with self.engine.connect() as connection:
@@ -50,65 +52,38 @@ class DatabaseConnection:
                 current_user = connection.execute(text("SELECT current_user")).scalar()
 
                 logger.info(f"Connected to PostgreSQL:\nVersion: {version}\nDatabase: {current_db}\nUser: {current_user}")
+                
+                # Try to list tables
+                tables = connection.execute(text(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+                )).fetchall()
+                logger.info("Tables in database:")
+                for table in tables:
+                    logger.info(f"- {table[0]}")
+                    
                 return True
 
         except Exception as e:
             logger.error(f"Database connection test failed: {str(e)}")
             return False
 
-    def ensure_tunnel(self):
-        """Ensure SSH tunnel is active and restart if needed"""
-        with self._lock:
-            if not self.tunnel or not self.tunnel.is_active:
-                if self.tunnel:
-                    try:
-                        self.tunnel.close()
-                    except:
-                        pass
-                    self.tunnel = None
-                
-                # Configure new tunnel with supported parameters only
-                self.tunnel = SSHTunnelForwarder(
-                    ssh_address_or_host=(os.environ['SSH_HOST'], 21098),
-                    ssh_username=os.environ['SSH_USERNAME'],
-                    ssh_password=os.environ['SSH_PASSWORD'],
-                    remote_bind_address=('127.0.0.1', 5432),
-                    local_bind_address=('127.0.0.1', 0),
-                    set_keepalive=5.0,  # Aggressive keepalive
-                    compression=True
-                )
-                
-                logger.info("Starting SSH tunnel...")
-                self.tunnel.start()
-                
-                # Wait for tunnel to become active
-                for _ in range(10):
-                    if self.tunnel.is_active:
-                        logger.info(f"SSH tunnel established on port {self.tunnel.local_bind_port}")
-                        return True
-                    time.sleep(1)
-                raise Exception("Tunnel failed to become active")
-            return True
-
     def get_db_url(self):
-        """Get current database URL with active tunnel port"""
-        if not self.tunnel or not self.tunnel.is_active:
-            raise Exception("No active tunnel")
+        """Get database URL for direct connection"""
+        # If DATABASE_URL is set, use it directly
+        if self.database_url:
+            return self.database_url
+            
+        # Otherwise construct from components
         return (f"postgresql://{self.db_username}:{self.db_password}@"
-                f"127.0.0.1:{self.tunnel.local_bind_port}/{self.db_name}")
+                f"{self.db_host}:{self.db_port}/{self.db_name}")
 
     def connect(self):
-        """Connect to database with automatic tunnel management"""
+        """Connect to database directly"""
         try:
-            # Ensure tunnel is active
-            self.ensure_tunnel()
-            
             # Create new engine if needed
             if not self.engine:
-                db_url = (
-                    f"postgresql://{self.db_username}:{self.db_password}@"
-                    f"127.0.0.1:{self.tunnel.local_bind_port}/{self.db_name}"
-                )
+                db_url = self.get_db_url()
+                logger.info(f"Connecting to database via {db_url}")
                 
                 self.engine = create_engine(
                     db_url,
@@ -129,10 +104,14 @@ class DatabaseConnection:
                 self.Session = sessionmaker(bind=self.engine)
 
             # Test connection
-            session = self.Session()
-            with session.begin():
-                session.execute(text("SELECT 1"))
-            return session
+            if self.Session:
+                session = self.Session()
+                with session.begin():
+                    session.execute(text("SELECT 1"))
+                return session
+            else:
+                logger.error("No Session available - engine initialization failed")
+                raise Exception("Database engine initialization failed")
 
         except Exception as e:
             logger.error(f"Connection failed: {str(e)}")
@@ -144,31 +123,64 @@ class DatabaseConnection:
         if self.engine:
             self.engine.dispose()
             self.engine = None
-        if self.tunnel:
-            try:
-                self.tunnel.close()
-            except:
-                pass
-            self.tunnel = None
 
 # Global database connection instance
 db_connection = DatabaseConnection()
 
 def get_db_session():
-    """Get a database session through SSH tunnel"""
+    """Get a database session"""
     try:
         return db_connection.connect()
     except Exception as e:
         logger.error(f"Failed to get database session: {str(e)}")
         raise
 
+def test_database_connection():
+    """Test database connection with detailed logging"""
+    try:
+        logger.info("========== DATABASE CONNECTION TEST ==========")
+        success = db_connection.test_connection()
+        if success:
+            logger.info("Database connection test successful")
+        else:
+            logger.error("Database connection test failed")
+        logger.info("============================================")
+        return success
+    except Exception as e:
+        logger.error(f"Database connection test error: {str(e)}")
+        return False
+
 def init_database():
     """Initialize database connection"""
     try:
-        logger.info("Initializing database connection...")
-        session = get_db_session()
+        logger.info("INITIALIZING DATABASE CONNECTION")
+        logger.info("MODE: Direct PostgreSQL connection")
+        
+        # Test the connection
+        if not test_database_connection():
+            raise Exception("Database connection test failed")
+        
         logger.info("Database initialized successfully")
-        return session
+        return True
+        
     except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
-        raise
+        logger.error(f"Database initialization failed: {str(e)}")
+        raise Exception(f"Database initialization failed: {str(e)}")
+        
+def create_tables():
+    """Create database tables"""
+    try:
+        # Import models here to avoid circular imports
+        import models
+        
+        # Create tables
+        logger.info("Creating database tables")
+        
+        # Create all tables defined in models module
+        Base.metadata.create_all(db_connection.engine)
+        
+        logger.info("Database tables created successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {str(e)}")
+        return False

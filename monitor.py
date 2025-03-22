@@ -3,17 +3,22 @@ import trafilatura
 import logging
 import asyncio
 import requests
+import contextlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Bot
 from sqlalchemy import and_, or_
 from app import db
 from models import Website, Check
+from email_sender import send_change_notification
 
 class WebsiteMonitor:
-    def __init__(self, telegram_bot_token, telegram_chat_id):
+    def __init__(self, telegram_bot_token=None, telegram_chat_id=None, email_notifications_enabled=False, notification_email=None):
         self.telegram_bot_token = telegram_bot_token
         self.telegram_chat_id = telegram_chat_id
+        self.email_notifications_enabled = email_notifications_enabled
+        self.notification_email = notification_email
+        
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -21,6 +26,8 @@ class WebsiteMonitor:
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
         }
+        
+        # Initialize Telegram bot if credentials are provided
         self.bot = None
         if telegram_bot_token and telegram_chat_id:
             try:
@@ -30,19 +37,17 @@ class WebsiteMonitor:
                 logging.error(f"Failed to initialize Telegram bot: {str(e)}")
                 self.bot = None
         else:
-            logging.warning("Telegram bot not initialized - missing credentials")
+            logging.info("Telegram bot not initialized - missing credentials")
 
     def get_content_hash(self, content):
-        """Generate hash of content, with logging for debugging"""
+        """Generate hash of content"""
         if not content:
             logging.warning("Empty content received for hashing")
             return None
 
         # Remove excessive whitespace and normalize
         content = ' '.join(content.split())
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-        logging.debug(f"Generated content hash: {content_hash[:8]}...")
-        return content_hash
+        return hashlib.sha256(content.encode()).hexdigest()
 
     def fetch_website_content(self, url):
         try:
@@ -135,19 +140,25 @@ class WebsiteMonitor:
                 )
             )
 
+            # Only run the delete if there are checks to remove
             count = delete_query.count()
             if count > 0:
                 delete_query.delete(synchronize_session=False)
                 logging.info(f"Deleted {count} old checks for website {website_id}")
-
-            db.session.commit()
+                db.session.commit()
+            
             logging.info("Cleanup of old checks completed successfully")
 
         except Exception as e:
             logging.error(f"Error during cleanup of old checks: {str(e)}")
             db.session.rollback()
+            # Continue with operation, don't fail the entire check because cleanup failed
 
     def check_website(self, website):
+        """Check a website for changes, with proper database session handling"""
+        # Initialize timezone for error notifications
+        pst_time = datetime.now(ZoneInfo('America/Los_Angeles'))
+        
         try:
             logging.info(f"Checking website: {website.url}")
             content = self.fetch_website_content(website.url)
@@ -159,9 +170,11 @@ class WebsiteMonitor:
             if not current_hash:
                 raise Exception("Failed to generate content hash")
 
-            # Log comparison for debugging
-            logging.info(f"Previous hash: {website.last_content_hash[:8] if website.last_content_hash else 'None'}")
-            logging.info(f"Current hash: {current_hash[:8]}")
+            # Compare content hashes
+            if website.last_content_hash:
+                logging.debug(f"Hash comparison: {website.last_content_hash[:8]} vs {current_hash[:8]}")
+            else:
+                logging.debug("No previous hash available for comparison")
 
             # Create check record with UTC timestamp
             check = Check(
@@ -180,17 +193,34 @@ class WebsiteMonitor:
                     pst_time = datetime.now(ZoneInfo('America/Los_Angeles'))
                     logging.info(f"Change detected for {website.url}")
 
-                    try:
-                        # Create and run an event loop for the async notification
-                        notification_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(notification_loop)
-                        notification_loop.run_until_complete(self.send_telegram_notification(
-                            f"🔔 Change detected on {website.url}\n"
-                            f"Time: {pst_time.strftime('%Y-%m-%d %I:%M:%S %p PST')}"
-                        ))
-                        notification_loop.close()
-                    except Exception as e:
-                        logging.error(f"Error sending change notification: {str(e)}")
+                    # Send Telegram notification if configured
+                    if self.telegram_chat_id and self.telegram_bot_token:
+                        try:
+                            # Create and run an event loop for the async notification
+                            with contextlib.closing(asyncio.new_event_loop()) as notification_loop:
+                                asyncio.set_event_loop(notification_loop)
+                                notification_loop.run_until_complete(self.send_telegram_notification(
+                                    f"🔔 Change detected on {website.url}\n"
+                                    f"Time: {pst_time.strftime('%Y-%m-%d %I:%M:%S %p PST')}"
+                                ))
+                        except Exception as e:
+                            logging.error(f"Error sending Telegram notification: {str(e)}")
+                    
+                    # Send email notification if enabled
+                    if self.email_notifications_enabled and self.notification_email:
+                        try:
+                            logging.info(f"Sending email notification to {self.notification_email}")
+                            email_sent = send_change_notification(
+                                self.notification_email, 
+                                website.url, 
+                                check_time=check.check_time
+                            )
+                            if email_sent:
+                                logging.info(f"Email notification sent successfully to {self.notification_email}")
+                            else:
+                                logging.warning(f"Failed to send email notification to {self.notification_email}")
+                        except Exception as e:
+                            logging.error(f"Error sending email notification: {str(e)}")
             else:
                 logging.info(f"First check for {website.url}, setting initial hash")
 
@@ -209,45 +239,88 @@ class WebsiteMonitor:
                 # Verify the update by refreshing from database
                 db.session.refresh(website)
                 db.session.refresh(check)
-                logging.info(f"Database updated - Website hash: {website.last_content_hash[:8]}, Check status: {check.status}")
 
-                # Clean up old checks after successful update
-                self.cleanup_old_checks(website.id)
+                # Clean up old checks after successful update using a try-except to isolate failures
+                try:
+                    self.cleanup_old_checks(website.id)
+                except Exception as cleanup_error:
+                    logging.error(f"Cleanup error (non-fatal): {str(cleanup_error)}")
+                    # Don't let cleanup errors affect the main operation
 
-            except Exception as e:
-                logging.error(f"Error committing database changes: {str(e)}")
-                db.session.rollback()
+            except Exception as db_error:
+                logging.error(f"Error committing database changes: {str(db_error)}")
+                try:
+                    db.session.rollback()
+                except:
+                    pass
                 raise
 
             logging.info(f"Successfully updated website status for {website.url} (changed: {has_changed})")
+            return has_changed
 
         except Exception as e:
             error_msg = str(e)
             logging.error(f"Error checking website {website.url}: {error_msg}")
-            check = Check(
-                website_id=website.id,
-                status='error',
-                error_message=error_msg,
-                check_time=datetime.utcnow()
-            )
-
-            # Update website status
-            website.status = 'error'
-            website.last_checked = datetime.utcnow()
-
-            # Add and commit changes
-            db.session.add(check)
-            db.session.commit()
-
+            
             try:
-                # Create and run an event loop for the async notification
-                error_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(error_loop)
-                error_loop.run_until_complete(self.send_telegram_notification(
-                    f"❌ Error checking {website.url}\n"
-                    f"Time: {pst_time.strftime('%Y-%m-%d %I:%M:%S %p PST')}\n"
-                    f"Error: {error_msg}"
-                ))
-                error_loop.close()
-            except Exception as notify_error:
-                logging.error(f"Error sending error notification: {str(notify_error)}")
+                # Create a fresh check record for the error
+                check = Check(
+                    website_id=website.id,
+                    status='error',
+                    error_message=error_msg,
+                    check_time=datetime.utcnow()
+                )
+
+                # Update website status
+                website.status = 'error'
+                website.last_checked = datetime.utcnow()
+
+                # Add and commit changes
+                db.session.add(check)
+                db.session.add(website)  # Make sure website changes are saved
+                
+                # Use a short transaction
+                db.session.commit()
+                logging.info(f"Error status recorded for {website.url}")
+                
+                # Send notifications about the error
+                
+                # Send Telegram notification if configured
+                if self.telegram_chat_id and self.telegram_bot_token:
+                    try:
+                        # Create and run an event loop for the async notification
+                        with contextlib.closing(asyncio.new_event_loop()) as error_loop:
+                            asyncio.set_event_loop(error_loop)
+                            error_loop.run_until_complete(self.send_telegram_notification(
+                                f"❌ Error checking {website.url}\n"
+                                f"Time: {pst_time.strftime('%Y-%m-%d %I:%M:%S %p PST')}\n"
+                                f"Error: {error_msg}"
+                            ))
+                    except Exception as notify_error:
+                        logging.error(f"Error sending Telegram error notification: {str(notify_error)}")
+                        
+                # Send email notification if enabled
+                if self.email_notifications_enabled and self.notification_email:
+                    try:
+                        logging.info(f"Sending error email notification to {self.notification_email}")
+                        # For errors, we use the same notification function but add error context
+                        email_sent = send_change_notification(
+                            self.notification_email, 
+                            f"{website.url} (Error: {error_msg[:50]}...)", 
+                            check_time=check.check_time
+                        )
+                        if email_sent:
+                            logging.info(f"Error email notification sent successfully to {self.notification_email}")
+                        else:
+                            logging.warning(f"Failed to send error email notification to {self.notification_email}")
+                    except Exception as e:
+                        logging.error(f"Error sending error email notification: {str(e)}")
+                    
+            except Exception as db_error:
+                logging.error(f"Failed to record error status: {str(db_error)}")
+                try:
+                    db.session.rollback()
+                except:
+                    pass
+            
+            return False

@@ -1,0 +1,550 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Page header with action buttons -->
+<div class="settings-header mb-4">
+    <div class="d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center">
+            <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary me-3 back-btn" title="Back to Dashboard">
+                <i data-feather="arrow-left"></i>
+            </a>
+            <h2 class="mb-0">User Settings</h2>
+        </div>
+        <button type="submit" form="settingsForm" class="btn btn-primary save-btn">
+            <i data-feather="save" class="me-2"></i> Save
+        </button>
+    </div>
+</div>
+
+<!-- Main content area -->
+<div class="settings-container">
+    <!-- Telegram warning notification -->
+    {% if not current_user.telegram_chat_id %}
+    <div class="notification-card telegram-warning mb-4">
+        <div class="notification-icon">
+            <i data-feather="alert-triangle"></i>
+        </div>
+        <div class="notification-content">
+            <h5>Telegram Notifications Not Configured</h5>
+            <p>You have not set up your Telegram Chat ID yet. This means you won't receive notifications when your monitored websites change.</p>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Settings form -->
+    <form method="POST" action="{{ url_for('settings.user_settings') }}" id="settingsForm">
+        {{ form.hidden_tag() }}
+        
+        <div class="settings-grid">
+            <!-- Telegram Notifications Card -->
+            <div class="settings-card telegram-card">
+                <div class="settings-card-header">
+                    <i data-feather="send" class="settings-icon"></i>
+                    <h4>Telegram Notifications</h4>
+                </div>
+                
+                <div class="settings-card-body">
+                    <div class="settings-section">
+                        <label class="settings-label">{{ form.telegram_bot_token.label.text }}</label>
+                        <div class="input-group form-field-custom">
+                            <span class="input-group-text">
+                                <i data-feather="key"></i>
+                            </span>
+                            {{ form.telegram_bot_token(class="form-control", placeholder="Your private Telegram Bot Token", id="telegramBotToken") }}
+                        </div>
+                        {% for error in form.telegram_bot_token.errors %}
+                            <div class="error-message">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="settings-section">
+                        <label class="settings-label">{{ form.telegram_chat_id.label.text }}</label>
+                        <div class="input-group form-field-custom">
+                            <span class="input-group-text">
+                                <i data-feather="message-circle"></i>
+                            </span>
+                            {{ form.telegram_chat_id(class="form-control", placeholder="Enter your Telegram Chat ID") }}
+                        </div>
+                        {% for error in form.telegram_chat_id.errors %}
+                            <div class="error-message">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="settings-help telegram-setup-guide">
+                        <h6 class="mb-2">Telegram Bot Setup Instructions:</h6>
+                        <ol class="mb-0">
+                            <li class="mb-2"><strong>Get the Bot Token</strong>
+                                <ul>
+                                    <li>Open Telegram and search for BotFather.</li>
+                                    <li>Send /newbot and follow the instructions.</li>
+                                    <li>Copy the bot token from BotFather (it looks like 123456789:ABCdefGhIJK).</li>
+                                    <li>Paste it into Telegram Bot Token field above.</li>
+                                </ul>
+                            </li>
+                            <li><strong>Get the Chat ID</strong>
+                                <ul>
+                                    <li>Open Telegram and send any message to your bot.</li>
+                                    <li>Open this link in a browser (replace YOUR_BOT_TOKEN):<br>
+                                        <code class="telegram-code">https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates</code>
+                                    </li>
+                                    <li>Look for "chat":{"id":XXXXXXXXX} in the response.</li>
+                                    <li>Copy that chat ID and paste it into Telegram Chat ID field above.</li>
+                                </ul>
+                            </li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Email Notifications Card -->
+            <div class="settings-card email-card">
+                <div class="settings-card-header">
+                    <i data-feather="mail" class="settings-icon"></i>
+                    <h4>Email Notifications</h4>
+                </div>
+                
+                <div class="settings-card-body">
+                    <div class="settings-section">
+                        <div class="form-switch-custom">
+                            {{ form.email_notifications_enabled(class="form-check-input") }}
+                            <label class="settings-label switch-label" for="{{ form.email_notifications_enabled.id }}">
+                                {{ form.email_notifications_enabled.label.text }}
+                            </label>
+                        </div>
+                        <div class="settings-help">
+                            <p>Enable to receive email notifications when your monitored websites change.</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <label class="settings-label">{{ form.notification_email.label.text }}</label>
+                        <div class="input-group form-field-custom">
+                            <span class="input-group-text">
+                                <i data-feather="at-sign"></i>
+                            </span>
+                            {{ form.notification_email(class="form-control", placeholder="Your notification email address") }}
+                        </div>
+                        <div class="settings-help">
+                            <p>Leave empty to use your account email address. You can specify a different email for notifications if needed.</p>
+                        </div>
+                        {% for error in form.notification_email.errors %}
+                            <div class="error-message">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hidden form fields for the cron expressions -->
+        {{ form.schedule_1(id="schedule_1_hidden", style="display: none;") }}
+        {{ form.schedule_2(id="schedule_2_hidden", style="display: none;") }}
+        {{ form.schedule_3(id="schedule_3_hidden", style="display: none;") }}
+        {{ form.schedule_4(id="schedule_4_hidden", style="display: none;") }}
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Form submission for user settings with toast notification
+    const settingsForm = document.getElementById('settingsForm');
+    if (settingsForm) {
+        settingsForm.addEventListener('submit', function(e) {
+            // Standard form submission
+            // We'll show a toast notification when the form redirects back to this page
+            
+            // Store a flag in localStorage to indicate that settings were successfully saved
+            localStorage.setItem('settings_updated', 'true');
+        });
+    }
+    
+    // Check if we should show a success toast (after redirect from form submission)
+    if (localStorage.getItem('settings_updated') === 'true') {
+        // Show toast notification - use window.showToast with safety check
+        if (typeof window.showToast === 'function') {
+            window.showToast('Settings updated successfully!', 'success');
+        } else {
+            // Fallback if showToast isn't available
+            console.log('Settings updated successfully!');
+        }
+        
+        // Remove the flag so we don't show the toast again on page refresh
+        localStorage.removeItem('settings_updated');
+    }
+    
+    // No longer need password toggle since we're showing the last 5 characters by default
+
+    // Set up scheduler debug modal data loading when opened (for admin users)
+    const schedulerDebugModal = document.getElementById('schedulerDebugModal');
+    if (schedulerDebugModal) {
+        schedulerDebugModal.addEventListener('shown.bs.modal', function() {
+            // Make sure loadSchedulerDebugInfo function is available
+            if (typeof window.loadSchedulerDebugInfo === 'function') {
+                window.loadSchedulerDebugInfo();
+            } else {
+                // Defer loading the scheduler debug info
+                setTimeout(() => {
+                    if (typeof loadSchedulerDebugInfo === 'function') {
+                        loadSchedulerDebugInfo();
+                    } else {
+                        console.error('loadSchedulerDebugInfo function not found');
+                    }
+                }, 300);
+            }
+        });
+        
+        // Set up refresh button
+        const refreshButton = document.getElementById('refreshSchedulerInfo');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', function() {
+                const originalText = this.textContent;
+                this.innerHTML = '<i data-feather="loader" class="rotating"></i> Refreshing...';
+                feather.replace();
+                
+                setTimeout(() => {
+                    if (typeof loadSchedulerDebugInfo === 'function') {
+                        loadSchedulerDebugInfo();
+                        this.textContent = originalText;
+                    }
+                }, 300);
+            });
+        }
+    }
+    
+    // Make feather icons work
+    feather.replace();
+});
+</script>
+
+<style>
+/* Settings page layout and containers */
+.settings-header {
+    padding: 0.75rem 0;
+    margin-bottom: 2rem;
+}
+
+.settings-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+/* Card styling */
+.settings-card {
+    background-color: #fff;
+    border-radius: 0; /* Squared corners */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    height: 100%;
+    min-height: 300px;
+}
+
+.settings-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.settings-card-header {
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    background: rgb(239, 251, 238);
+    border-bottom: 1px solid #eaeaea;
+}
+
+.settings-icon {
+    margin-right: 1rem;
+    width: 24px;
+    height: 24px;
+    color: #1a2e35;
+}
+
+.settings-card-header h4 {
+    margin: 0;
+    font-weight: 600;
+    color: #1a2e35;
+    font-size: 1.2rem;
+}
+
+.settings-card-body {
+    padding: 1.5rem;
+}
+
+.settings-section {
+    margin-bottom: 2rem;
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
+}
+
+/* Form controls styling */
+.settings-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #1a2e35;
+}
+
+.form-field-custom {
+    border-radius: 0;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.3s ease;
+}
+
+.form-field-custom:focus-within {
+    box-shadow: 0 0 0 3px rgba(103, 232, 183, 0.25);
+}
+
+.form-field-custom .input-group-text {
+    background-color: #f8f9fa;
+    border: 1px solid #ced4da;
+    color: #6c757d;
+    border-right: none;
+}
+
+.form-field-custom .form-control {
+    border: 1px solid #ced4da;
+    border-left: none;
+}
+
+.form-field-custom .form-control:focus {
+    box-shadow: none;
+    border-color: #ced4da;
+}
+
+/* Switch styling */
+.form-switch-custom {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.form-switch-custom .form-check-input {
+    width: 3em;
+    height: 1.5em;
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+.form-switch-custom .form-check-input:checked {
+    background-color: #67E8B7;
+    border-color: #67E8B7;
+}
+
+.form-switch-custom .switch-label {
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+/* Help text */
+.settings-help {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 0;
+    border-left: 3px solid #dee2e6;
+}
+
+.settings-help ol li {
+    margin-bottom: 0.5rem;
+}
+
+.settings-help ol li:last-child {
+    margin-bottom: 0;
+}
+
+/* Warning notification card */
+.notification-card {
+    display: flex;
+    padding: 1.25rem;
+    border-radius: 0;
+    background-color: #fff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.notification-card.telegram-warning {
+    border-left: 4px solid #ffc107;
+}
+
+.notification-icon {
+    margin-right: 1rem;
+    color: #ffc107;
+    display: flex;
+    align-items: flex-start;
+}
+
+.notification-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.notification-content h5 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+    color: #1a2e35;
+}
+
+.notification-content p {
+    margin-bottom: 0;
+    color: #555;
+}
+
+/* Buttons */
+.back-btn {
+    border-radius: 0;
+    padding: 0.375rem 0.75rem;
+}
+
+.save-btn {
+    border-radius: 0;
+    background-color: #67E8B7;
+    border-color: #67E8B7;
+    color: #1a2e35;
+    font-weight: 500;
+    padding: 0.5rem 1.25rem;
+}
+
+.save-btn:hover {
+    background-color: #50d6a5;
+    border-color: #50d6a5;
+    color: #1a2e35;
+}
+
+/* Links */
+.telegram-link {
+    color: #0088cc;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.telegram-link:hover {
+    color: #006699;
+    text-decoration: underline;
+}
+
+/* Error messages */
+.error-message {
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+}
+
+/* Token styles */
+.token-info {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: #495057;
+    background-color: #f8f9fa;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ced4da;
+    border-radius: 0;
+}
+
+.token-preview {
+    font-weight: 600;
+}
+
+/* Telegram setup guide styling */
+.telegram-setup-guide {
+    margin-top: 2rem;
+}
+
+.telegram-setup-guide h6 {
+    font-weight: 600;
+    color: #1a2e35;
+}
+
+.telegram-setup-guide ol {
+    padding-left: 1.25rem;
+}
+
+.telegram-setup-guide ul {
+    padding-left: 1.25rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.telegram-setup-guide li {
+    margin-bottom: 0.5rem;
+}
+
+.telegram-setup-guide ul li {
+    margin-bottom: 0.25rem;
+}
+
+.telegram-code {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 0.85rem;
+    background-color: #f1f1f1;
+    padding: 0.15rem 0.4rem;
+    margin: 0.25rem 0;
+    color: #d63384;
+    word-break: break-all;
+}
+
+/* Media queries for responsiveness */
+@media (max-width: 768px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .settings-container {
+        padding: 0 0.5rem;
+    }
+}
+</style>
+<!-- Scheduler Debug Modal (only shown for admin users) -->
+{% if current_user.username == 'admin' %}
+<div class="modal fade" id="schedulerDebugModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Scheduler Debug Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Scheduler Information</div>
+                            <div class="card-body">
+                                <div id="scheduler-info"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Your Schedules</div>
+                            <div class="card-body">
+                                <div id="user-schedules"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">All Jobs</div>
+                    <div class="card-body">
+                        <div id="scheduler-jobs"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="refreshSchedulerInfo">Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
