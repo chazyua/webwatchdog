@@ -33,14 +33,25 @@ def init_oauth(app):
     global google
     oauth.init_app(app)
     
-    # Configure Google OAuth client
+    # Configure Google OAuth client with additional parameters for newer Authlib versions
     google = oauth.register(
         name='google',
         client_id=app.config.get('GOOGLE_CLIENT_ID'),
         client_secret=app.config.get('GOOGLE_CLIENT_SECRET'),
         server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-        client_kwargs={'scope': 'openid email profile'},
+        client_kwargs={
+            'scope': 'openid email profile',
+            'prompt': 'select_account',
+            'access_type': 'offline',
+            'include_granted_scopes': True
+        },
     )
+    
+    # Log OAuth configuration status
+    if app.config.get('GOOGLE_CLIENT_ID') and app.config.get('GOOGLE_CLIENT_SECRET'):
+        app.logger.info("Google OAuth configured successfully")
+    else:
+        app.logger.warning("Google OAuth configuration is incomplete - missing client ID or secret")
     
     return google
 
@@ -168,8 +179,12 @@ def google_login():
         set_toast_message_in_session('Google login is not configured', 'error')
         return redirect(url_for('auth.login'))
     
+    # Generate a nonce for OpenID Connect and store in session
+    nonce = secrets.token_hex(16)
+    session['google_auth_nonce'] = nonce
+    
     redirect_uri = url_for('auth.google_authorize', _external=True)
-    return google.authorize_redirect(redirect_uri)
+    return google.authorize_redirect(redirect_uri, nonce=nonce)
 
 @bp.route('/google/callback')
 def google_authorize():
@@ -180,8 +195,15 @@ def google_authorize():
         return redirect(url_for('auth.login'))
     
     try:
+        # Retrieve the nonce from session
+        nonce = session.pop('google_auth_nonce', None)
+        if not nonce:
+            current_app.logger.warning("OAuth callback missing nonce in session")
+            # Continue anyway, but log the warning
+        
         token = google.authorize_access_token()
-        user_info = google.parse_id_token(token)
+        # Pass the nonce to parse_id_token
+        user_info = google.parse_id_token(token, nonce=nonce)
         
         # Get user email from OAuth response
         email = user_info.get('email')
@@ -229,9 +251,26 @@ def google_authorize():
         return redirect(url_for('dashboard'))
     
     except Exception as e:
-        current_app.logger.error(f"Google OAuth error: {str(e)}")
+        error_message = str(e)
+        current_app.logger.error(f"Google OAuth error: {error_message}")
+        
+        # Provide more user-friendly error messages based on common issues
+        user_message = 'Error during Google authentication'
+        
+        if 'nonce' in error_message.lower():
+            user_message = 'Authentication session expired. Please try again.'
+        elif 'invalid_client' in error_message.lower() or 'client_id' in error_message.lower():
+            user_message = 'OAuth configuration error. Please contact the administrator.'
+        elif 'access_denied' in error_message.lower():
+            user_message = 'Access was denied. Please try again and allow the required permissions.'
+        elif 'timeout' in error_message.lower() or 'connect' in error_message.lower():
+            user_message = 'Connection error. Please check your internet connection and try again.'
+            
         from app import set_toast_message_in_session
-        set_toast_message_in_session('Error during Google authentication', 'error')
+        set_toast_message_in_session(user_message, 'error')
+        
+        # Log detailed error information for debugging
+        current_app.logger.debug(f"OAuth error details: {error_message}")
         return redirect(url_for('auth.login'))
         
 @bp.route('/forgot-password', methods=['GET', 'POST'])

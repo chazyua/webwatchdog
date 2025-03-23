@@ -257,7 +257,7 @@ def init_scheduler():
         scheduler.add_job(
             check_websites_for_user,
             CronTrigger(
-                hour='8,15,19', 
+                hour='8', 
                 minute='0', 
                 timezone=scheduler_timezone  # Use same timezone as the rest of the scheduler
             ),
